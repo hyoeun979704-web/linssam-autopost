@@ -1,0 +1,52 @@
+# 린쌤 자동 업로드 설정
+# 설치할 때 이 파일을 config.yaml 로 복사한 뒤 아래 값을 채운다.
+
+# 유튜브 채널 이름. 업로드 직전 스튜디오 화면의 채널명과 대조해서 다르면 올리지 않는다.
+channel_name: "비너스 셔플&라인 DANCE 린"
+
+# 구글 드라이브 데스크톱 앱이 동기화하는 폴더 안의 작업 폴더.
+# 이 아래에 쇼츠_입문 / 롱폼_라인댄스 / 완료 / 확인필요 폴더가 자동으로 생긴다.
+base_dir: "~/Google Drive/My Drive/린쌤자동업로드"
+
+# 영상 맨 끝 2초에 들어가는 수업 안내 한 줄
+class_line: "천안 ○○ 문화센터 · 월·수"
+
+# 설명란 맨 위에 들어가는 문의 줄. 전화번호를 넣지 않으려면 빈칸으로 둔다.
+contact_line: "🩵 문의 010-0000-0000"
+
+# 모든 설명란 끝에 붙는 해시태그
+hashtags: "#천안셔플댄스 #셔플입문 #셔플배우기 #비너스셔플"
+hashtags_line: "#천안라인댄스 #라인댄스 #대한라인댄스협회천안지부"
+
+# 쇼츠 시리즈 이름과 전체 편수 (제목: "셔플 입문 3/12 · T스텝")
+shorts_series: "셔플 입문"
+shorts_total: 12
+shorts_level: "완전초보 따라하기"
+region_tag: "천안셔플댄스"
+
+# 업로드 시간표 (요일: 0=월 ... 6=일, 24시간제)
+schedule:
+  shorts:
+    weekdays: [1, 4]      # 화, 금
+    time: "19:00"
+  long:
+    monthly_weekday: 5    # 매달 첫째 토요일
+    time: "10:00"
+
+# 편집 옵션
+edit:
+  trim_head_sec: 0.5      # 앞에서 잘라낼 시간
+  trim_tail_sec: 0.5      # 뒤에서 잘라낼 시간
+  count_captions: true    # 음악 박자에 맞춰 1~8 카운트 표시
+  end_card_sec: 2.0       # 마지막 수업 안내 길이
+  max_shorts_sec: 60      # 이보다 길면 쇼츠 폴더 영상이라도 확인필요로 보낸다
+
+# 업로드 방식
+#   aside   : 어머님 Aside 브라우저(유튜브 로그인 상태)로 스튜디오에 올림. 기본값.
+#   browser : Aside 가 없을 때 전용 크롬 프로필로 올림 (python -m autopost login 으로 한 번 로그인)
+#   off     : 편집만 하고 업로드는 하지 않음
+# 공식 API 는 구글 감사 승인 전까지 업로드 영상이 비공개로 묶여서 쓰지 않는다.
+upload_method: aside
+aside_account: ""          # Aside 계정이 여러 개면 u0 같은 id 를 적는다
+chrome_profile_dir: "~/.linssam-autopost/chrome-profile"
+chrome_debug_port: 9333

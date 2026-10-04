@@ -1,0 +1,6 @@
+.venv/
+config.yaml
+__pycache__/
+*.pyc
+편집결과/
+.DS_Store
