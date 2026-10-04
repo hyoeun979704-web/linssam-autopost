@@ -87,7 +87,7 @@ def process_new(cfg: dict) -> None:
                 continue
             if not stable(src):
                 continue
-            key = f"{kind}:{src.stem}:{src.stat().st_size}"
+            key = f"{cfg.get('channel_name', '')}:{kind}:{src.stem}:{src.stat().st_size}"
             if any(i["key"] == key for i in queue.items()):
                 continue
             log(f"편집 시작: {src.name}")
@@ -126,10 +126,14 @@ def upload_due(cfg: dict) -> None:
             if dt.datetime.now() - started > dt.timedelta(hours=2):
                 queue.update(item["key"], status="check", error="업로드 도중 멈췄습니다. 스튜디오에서 올라갔는지 확인해 주세요.")
                 log(f"확인필요(업로드 중단): {item['title']}")
-    for item in queue.due():
-        if item.get("channel") and item["channel"] != cfg.get("channel_name", ""):
-            queue.update(item["key"], status="check", error="설정의 채널이 바뀌었습니다. 이 영상을 어느 채널에 올릴지 확인해 주세요.")
+    for i in queue.reslot_overdue(cfg):
+        log(f"밀린 영상 시간 다시 잡음: {i['title']} → {i['slot']}")
+    # at most one upload per kind per run, so a backlog never floods the channel
+    seen_kinds = set()
+    for item in queue.due(channel=cfg.get("channel_name", "")):
+        if item["kind"] in seen_kinds:
             continue
+        seen_kinds.add(item["kind"])
         attempts = item.get("attempts", 0) + 1
         queue.update(item["key"], status="uploading", attempts=attempts, started_at=dt.datetime.now().isoformat())
         log(f"업로드 시작({attempts}회째): {item['title']}")

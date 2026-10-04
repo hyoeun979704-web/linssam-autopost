@@ -89,13 +89,20 @@ try {
     if (!done) { say({ok:true, phase:2, waiting:true}); }
     else {
       const names = await channelNames(pg);
-      if (names.length && !names.includes(A.channel)) {
-        say({ok:false, error:`발행 직전 채널명이 다릅니다(${names.join(', ')}). 발행하지 않았습니다.`});
+      if (!names.includes(A.channel)) {
+        say({ok:false, error:`발행 직전 채널명을 확인하지 못했습니다(${names.join(', ') || '찾지 못함'}). 발행하지 않았습니다.`});
       } else {
         await pg.locator('#done-button').click();
-        await sleep(5000);
-        say({ok:true, phase:2, waiting:false});
-        try { await closeTab(pg); } catch (e) {}
+        // published when the upload dialog closes or the share dialog appears
+        let published = false;
+        for (let i = 0; i < 15; i++) {
+          await sleep(2000);
+          const dlg = await pg.locator('ytcp-uploads-dialog #done-button').count();
+          const share = await pg.locator('ytcp-video-share-dialog, ytcp-prechecks-warning-dialog').count();
+          if (share || !dlg) { published = true; break; }
+        }
+        if (published) { say({ok:true, phase:2, waiting:false}); try { await closeTab(pg); } catch (e) {} }
+        else { say({ok:false, error:'완료 버튼을 눌렀지만 게시 확인 창이 뜨지 않았습니다.'}); }
       }
     }
   }
@@ -125,7 +132,7 @@ def _call(cfg: dict, js: str, args: dict) -> dict:
     for line in out.splitlines():
         if "@@RESULT@@" in line:
             return json.loads(line.split("@@RESULT@@", 1)[1])
-    return {"ok": False, "error": "Aside 응답이 없습니다: " + out[-300:]}
+    return {"ok": False, "sent": True, "error": "Aside 응답이 끊겼습니다(스튜디오 확인 필요): " + out[-200:]}
 
 
 def upload(cfg: dict, video: Path, title: str, description: str, thumbnail: Path | None = None,

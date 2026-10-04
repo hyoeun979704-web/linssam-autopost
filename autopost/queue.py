@@ -48,9 +48,29 @@ def next_slot(kind: str, cfg: dict, taken: set[str], now: dt.datetime | None = N
     raise RuntimeError("업로드 시간을 찾지 못했습니다. schedule 설정을 확인하세요.")
 
 
+def _taken(q: list[dict], kind: str, channel: str) -> set[str]:
+    return {i["slot"] for i in q if i["status"] in ("waiting", "uploading", "uploaded", "failed")
+            and i["kind"] == kind and i.get("channel", "") == channel}
+
+
+def reslot_overdue(cfg: dict, grace_hours: float = 6, now: dt.datetime | None = None) -> list[dict]:
+    """The computer was off: move long-overdue waiting items to the next free slots instead of
+    publishing them all at once."""
+    now = now or dt.datetime.now()
+    q = _load()
+    moved = []
+    for i in sorted(q, key=lambda x: x["slot"]):
+        if i["status"] == "waiting" and dt.datetime.fromisoformat(i["slot"]) < now - dt.timedelta(hours=grace_hours):
+            i["slot"] = next_slot(i["kind"], cfg, _taken(q, i["kind"], i.get("channel", "")), now).isoformat()
+            moved.append(i)
+    if moved:
+        _save(q)
+    return moved
+
+
 def add(entry: dict, cfg: dict) -> dict:
     q = _load()
-    taken = {i["slot"] for i in q if i["status"] in ("waiting", "uploading", "uploaded", "failed") and i["kind"] == entry["kind"]}
+    taken = _taken(q, entry["kind"], entry.get("channel", ""))
     entry["slot"] = next_slot(entry["kind"], cfg, taken).isoformat()
     entry["status"] = "waiting"
     q.append(entry)
@@ -62,12 +82,14 @@ MAX_ATTEMPTS = 3
 RETRY_AFTER = dt.timedelta(minutes=30)
 
 
-def due(now: dt.datetime | None = None) -> list[dict]:
+def due(now: dt.datetime | None = None, channel: str | None = None) -> list[dict]:
     """Waiting items whose slot has come, plus failed ones that may be retried."""
     now = now or dt.datetime.now()
     out = []
     for i in _load():
         if dt.datetime.fromisoformat(i["slot"]) > now:
+            continue
+        if channel is not None and i.get("channel", "") != channel:
             continue
         if i["status"] == "waiting":
             out.append(i)
@@ -75,7 +97,7 @@ def due(now: dt.datetime | None = None) -> list[dict]:
             last = dt.datetime.fromisoformat(i.get("failed_at", i["slot"]))
             if now - last >= RETRY_AFTER:
                 out.append(i)
-    return out
+    return sorted(out, key=lambda x: x["slot"])
 
 
 def update(key: str, **fields) -> None:
