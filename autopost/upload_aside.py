@@ -27,10 +27,10 @@ async function channelNames(pg) {
 PHASE1 = CHANNEL_JS + r"""
 const A = __ARGS__;
 const say = (o) => console.log('@@RESULT@@' + JSON.stringify(o));
-let pg;
+let pg; let sent = false;
 try {
   pg = await openTab('https://studio.youtube.com');
-  await sleep(8000);
+  await sleep(7000);
   if (pg.url().includes('accounts.google.com')) {
     say({ok:false, fatal:true, error:'Aside 브라우저에서 유튜브 로그인이 풀렸습니다. 직접 로그인해 주세요.'});
     await closeTab(pg);
@@ -41,9 +41,11 @@ try {
       await closeTab(pg);
     } else {
       await pg.goto('https://www.youtube.com/upload');
-      await sleep(6000);
+      await sleep(5000);
+      await pg.evaluate(`window.name = ${JSON.stringify(A.token)}`);
       await pg.locator('input[type=file]').first().setInputFiles(A.video);
-      await pg.locator('#title-textarea #textbox').waitFor({timeout:60000});
+      sent = true;
+      await pg.locator('#title-textarea #textbox').waitFor({timeout:40000});
       await sleep(2500);
       for (const [sel, text] of [['#title-textarea #textbox', A.title], ['#description-textarea #textbox', A.description]]) {
         await pg.locator(sel).first().click();
@@ -64,18 +66,21 @@ try {
       say({ok:true, phase:1, url, tabUrl: pg.url()});
     }
   }
-} catch (e) { say({ok:false, error:String(e).slice(0,300)}); try { if (pg) await closeTab(pg); } catch (e2) {} }
+} catch (e) { say({ok:false, sent, error:String(e).slice(0,300)}); try { if (pg && !sent) await closeTab(pg); } catch (e2) {} }
 """
 
-PHASE2 = r"""
+PHASE2 = CHANNEL_JS + r"""
 const A = __ARGS__;
 const say = (o) => console.log('@@RESULT@@' + JSON.stringify(o));
 try {
-  const tabs = await listBrowserTabs();
-  const t = tabs.find(x => (x.url || '').includes('studio.youtube.com') && (x.url || '').includes(A.tabHint));
-  if (!t) { say({ok:false, error:'업로드 창을 다시 찾지 못했습니다.'}); }
+  const tabs = (await listBrowserTabs()).filter(x => (x.url || '').includes('studio.youtube.com'));
+  let pg = null;
+  for (const t of tabs) {
+    const p = await attachBrowserTab(t.targetId);
+    if ((await p.evaluate('window.name')) === A.token) { pg = p; break; }
+  }
+  if (!pg) { say({ok:false, error:'업로드 창을 다시 찾지 못했습니다.'}); }
   else {
-    const pg = await attachBrowserTab(t.targetId);
     let done = false;
     for (let i = 0; i < 30; i++) {
       if (await pg.locator('#done-button').isEnabled()) { done = true; break; }
@@ -83,14 +88,27 @@ try {
     }
     if (!done) { say({ok:true, phase:2, waiting:true}); }
     else {
-      await pg.locator('#done-button').click();
-      await sleep(5000);
-      say({ok:true, phase:2, waiting:false});
-      try { await closeTab(pg); } catch (e) {}
+      const names = await channelNames(pg);
+      if (names.length && !names.includes(A.channel)) {
+        say({ok:false, error:`발행 직전 채널명이 다릅니다(${names.join(', ')}). 발행하지 않았습니다.`});
+      } else {
+        await pg.locator('#done-button').click();
+        await sleep(5000);
+        say({ok:true, phase:2, waiting:false});
+        try { await closeTab(pg); } catch (e) {}
+      }
     }
   }
 } catch (e) { say({ok:false, error:String(e).slice(0,300)}); }
 """
+
+
+class UploadError(RuntimeError):
+    """retry_safe=False means a file may already be in Studio: a person must check before retrying."""
+
+    def __init__(self, msg: str, retry_safe: bool):
+        super().__init__(msg)
+        self.retry_safe = retry_safe
 
 
 def _aside() -> str:
@@ -112,22 +130,27 @@ def _call(cfg: dict, js: str, args: dict) -> dict:
 
 def upload(cfg: dict, video: Path, title: str, description: str, thumbnail: Path | None = None,
            public: bool = True, max_wait_min: int = 40) -> str:
-    args = {"video": str(video.resolve()), "title": title, "description": description,
+    import uuid
+    token = "linssam-" + uuid.uuid4().hex
+    args = {"token": token, "video": str(video.resolve()), "title": title, "description": description,
             "thumbnail": str(thumbnail.resolve()) if thumbnail else "", "public": public,
             "channel": cfg.get("channel_name", "").strip(), "mac": platform.system() == "Darwin"}
-    r = _call(cfg, PHASE1, args)
+    try:
+        r = _call(cfg, PHASE1, args)
+    except subprocess.TimeoutExpired:
+        raise UploadError("Aside 가 응답하지 않았습니다(파일이 올라갔는지 스튜디오에서 확인 필요).", retry_safe=False)
     if not r.get("ok"):
-        raise RuntimeError(r.get("error", "알 수 없는 오류"))
+        raise UploadError(r.get("error", "알 수 없는 오류"), retry_safe=not r.get("sent", False))
     url = r.get("url", "")
-    hint = "/upload" if "/upload" in r.get("tabUrl", "") else "studio.youtube.com"
-    if "/video/" in r.get("tabUrl", ""):
-        hint = r["tabUrl"].split("/video/")[1].split("/")[0]
     deadline = time.time() + max_wait_min * 60
     while time.time() < deadline:
-        r = _call(cfg, PHASE2, {"tabHint": hint})
+        try:
+            r = _call(cfg, PHASE2, {"token": token, "channel": args["channel"]})
+        except subprocess.TimeoutExpired:
+            r = {"ok": True, "waiting": True}
         if not r.get("ok"):
-            raise RuntimeError(r.get("error", "알 수 없는 오류"))
+            raise UploadError(r.get("error", "알 수 없는 오류") + " (스튜디오에 임시저장 영상이 남아 있을 수 있습니다)", retry_safe=False)
         if not r.get("waiting"):
             return url
         time.sleep(5)
-    raise RuntimeError(f"{max_wait_min}분 안에 업로드 처리가 끝나지 않았습니다.")
+    raise UploadError(f"{max_wait_min}분 안에 업로드 처리가 끝나지 않았습니다(스튜디오 확인 필요).", retry_safe=False)

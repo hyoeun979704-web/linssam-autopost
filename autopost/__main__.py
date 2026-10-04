@@ -109,7 +109,7 @@ def process_new(cfg: dict) -> None:
                 continue
             if res.warnings:
                 log(f"참고: {src.name} — {' / '.join(res.warnings)}")
-            entry = queue.add({"key": key, "kind": kind, "source": src.name, "video": str(res.video),
+            entry = queue.add({"key": key, "kind": kind, "channel": cfg.get("channel_name", ""), "source": src.name, "video": str(res.video),
                                "thumbnail": str(res.thumbnail), "title": m["title"], "description": m["description"]}, cfg)
             move(src, f.done)
             log(f"대기열 추가: {m['title']} → {entry['slot']}")
@@ -120,9 +120,18 @@ def upload_due(cfg: dict) -> None:
         from . import upload_aside as uploader
     else:
         from . import upload_browser as uploader
+    for item in queue.items():
+        if item["status"] == "uploading":
+            started = dt.datetime.fromisoformat(item.get("started_at", item["slot"]))
+            if dt.datetime.now() - started > dt.timedelta(hours=2):
+                queue.update(item["key"], status="check", error="업로드 도중 멈췄습니다. 스튜디오에서 올라갔는지 확인해 주세요.")
+                log(f"확인필요(업로드 중단): {item['title']}")
     for item in queue.due():
+        if item.get("channel") and item["channel"] != cfg.get("channel_name", ""):
+            queue.update(item["key"], status="check", error="설정의 채널이 바뀌었습니다. 이 영상을 어느 채널에 올릴지 확인해 주세요.")
+            continue
         attempts = item.get("attempts", 0) + 1
-        queue.update(item["key"], status="uploading", attempts=attempts)
+        queue.update(item["key"], status="uploading", attempts=attempts, started_at=dt.datetime.now().isoformat())
         log(f"업로드 시작({attempts}회째): {item['title']}")
         try:
             url = uploader.upload(cfg, Path(item["video"]), item["title"], item["description"],
@@ -130,7 +139,9 @@ def upload_due(cfg: dict) -> None:
             queue.update(item["key"], status="uploaded", url=url, uploaded_at=dt.datetime.now().isoformat())
             log(f"업로드 완료: {item['title']} {url}")
         except Exception as e:  # noqa: BLE001
-            queue.update(item["key"], status="failed", error=str(e), failed_at=dt.datetime.now().isoformat())
+            safe = getattr(e, "retry_safe", True)
+            queue.update(item["key"], status="failed" if safe else "check", error=str(e),
+                         failed_at=dt.datetime.now().isoformat())
             log(f"업로드 실패: {item['title']} — {e}")
             notify("린쌤 자동업로드 실패", str(e)[:120])
 
@@ -168,7 +179,8 @@ def main(argv: list[str]) -> int:
         kind = argv[2] if len(argv) > 2 else ("long" if C.INBOX_LONG in str(src) else "shorts")
         m = meta.shorts_meta(src, cfg) if kind == "shorts" else meta.long_meta(src, cfg)
         res = edit.render(src, src.parent / "편집결과", kind=kind, title=m["band"],
-                          class_line=cfg.get("class_line", ""), opts=cfg.get("edit", {}))
+                          class_line=cfg.get("class_line", ""), opts=cfg.get("edit", {}),
+                          out_stem=f"{src.stem}_{dt.datetime.now():%Y%m%d%H%M%S}")
         print("영상:", res.video, f"({res.duration:.1f}초)")
         print("썸네일:", res.thumbnail)
         print("제목:", m["title"])

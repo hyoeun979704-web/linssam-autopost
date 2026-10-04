@@ -75,12 +75,19 @@ def _set_text(page, selector: str, text: str) -> None:
     page.keyboard.insert_text(text)
 
 
+class UploadError(RuntimeError):
+    def __init__(self, msg: str, retry_safe: bool):
+        super().__init__(msg)
+        self.retry_safe = retry_safe
+
+
 def upload(cfg: dict, video: Path, title: str, description: str, thumbnail: Path | None = None,
            public: bool = True, timeout_min: int = 30) -> str:
     """Upload one video. Returns the video URL. Raises on any mismatch."""
     from playwright.sync_api import sync_playwright
 
     proc = open_chrome(cfg["chrome_profile_dir"], cfg["chrome_debug_port"])
+    sent = False
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.connect_over_cdp(f"http://127.0.0.1:{cfg['chrome_debug_port']}")
@@ -100,6 +107,7 @@ def upload(cfg: dict, video: Path, title: str, description: str, thumbnail: Path
 
             page.goto("https://www.youtube.com/upload", wait_until="domcontentloaded")
             page.locator("input[type=file]").first.set_input_files(str(video))
+            sent = True
             page.locator("#title-textarea #textbox").wait_for(timeout=120000)
             page.wait_for_timeout(2500)
             _set_text(page, "#title-textarea #textbox", title)
@@ -131,6 +139,10 @@ def upload(cfg: dict, video: Path, title: str, description: str, thumbnail: Path
             page.wait_for_timeout(5000)
             page.close()
             return url
+    except UploadError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise UploadError(str(e), retry_safe=not sent) from e
     finally:
         if proc:
             proc.terminate()
