@@ -33,12 +33,12 @@ def _hhmm(s: str) -> tuple[int, int]:
 
 def next_slot(kind: str, cfg: dict, taken: set[str], now: dt.datetime | None = None) -> dt.datetime:
     now = now or dt.datetime.now()
-    sch = cfg["schedule"]["shorts" if kind == "shorts" else "long"]
+    sch = cfg["schedule"].get(kind) or cfg["schedule"]["long"]
     h, m = _hhmm(sch["time"])
     day = now.date()
     for _ in range(400):
         cand = dt.datetime.combine(day, dt.time(h, m))
-        if kind == "shorts":
+        if "weekdays" in sch:
             ok = day.weekday() in sch["weekdays"]
         else:
             ok = day.weekday() == sch["monthly_weekday"] and day.day <= 7

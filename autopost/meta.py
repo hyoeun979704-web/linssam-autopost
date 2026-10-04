@@ -83,3 +83,44 @@ def long_meta(video: Path, cfg: dict) -> dict:
     thumb_text = f"{song}" + (f" · {level}" if level else "")
     desc = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
     return {"title": title[:100], "description": desc, "band": thumb_text}
+
+
+def parse_class_name(stem: str) -> tuple[str, str, str]:
+    """"롯데마트 성정점_토요오전반_Hound Dog Cha" -> (center, group, song). Missing parts are ''."""
+    parts = [p.strip() for p in re.split(r"[_|]", stem) if p.strip()]
+    parts += [""] * (3 - len(parts))
+    if len(parts) > 3:
+        parts = [parts[0], parts[1], " ".join(parts[2:])]
+    return parts[0], parts[1], parts[2]
+
+
+def class_meta(video: Path, cfg: dict) -> dict:
+    """Class / recital footage: proof of teaching for culture-center managers."""
+    info, extra = read_sidecar(video)
+    center, group, song = parse_class_name(video.stem)
+    head = " · ".join(x for x in [center, group] if x)
+    title = info.get("title") or " | ".join(x for x in [song, f"{head} 수업" if head else "수업 영상", "천안·아산 셔플&라인댄스 강사"] if x)
+    lines = [f"☘️ {head} {song}".strip() + " — 실제 수업 영상입니다."]
+    if cfg.get("booking_line"):
+        lines.append(cfg["booking_line"])
+    lines.append("")
+    lines += cfg.get("profile_lines", [])
+    lines += extra
+    lines += ["", cfg.get("hashtags_class", cfg.get("hashtags_line", ""))]
+    desc = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return {"title": title[:100], "description": desc, "band": head or song, "center": center}
+
+
+def promo_text(meta_: dict, kind: str, cfg: dict, url: str = "") -> str:
+    """Ready-to-paste text for Daangn group / Naver blog after an upload."""
+    link = url or "(업로드 후 영상 주소)"
+    if kind == "class":
+        body = [f"오늘 {meta_.get('band', '')} 수업 모습이에요 💗", "", f"🎬 {link}", "",
+                "출강 문의 · 수업 문의 모두 카카오톡 채널로 편하게 연락 주세요 😊"]
+    else:
+        body = [meta_["title"].split(" | ")[0], "", "처음이셔도 천천히 따라오시면 돼요~ 영상 보고 같이 연습해요 💗", "",
+                f"🎬 {link}", ""]
+        body += cfg.get("info_lines", [])
+    if cfg.get("contact_line"):
+        body += ["", cfg["contact_line"]]
+    return "\n".join(body).strip() + "\n"

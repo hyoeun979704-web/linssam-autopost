@@ -14,7 +14,15 @@ fi
 command -v ffmpeg >/dev/null || brew install ffmpeg
 command -v python3 >/dev/null || brew install python@3.12
 [ -d "/Applications/Google Chrome.app" ] || echo "※ 크롬이 없습니다. browser 방식으로 올릴 때만 필요합니다."
-command -v aside >/dev/null || [ -x "$HOME/.local/bin/aside" ] || echo "※ Aside CLI 가 없습니다. 업로드 전에 Aside 를 설치하고 선생님 계정으로 로그인해 주세요."
+if [ ! -d "/Applications/Aside.app" ]; then
+  echo "※ Aside 앱이 없습니다. https://aside.com/download 에서 받아 설치하고, 선생님 계정으로 로그인한 뒤 다시 실행해 주세요."
+  open "https://aside.com/download" 2>/dev/null || true
+fi
+if ! command -v aside >/dev/null && [ ! -x "$HOME/.local/bin/aside" ]; then
+  echo "Aside 명령줄 도구(CLI)를 설치합니다 (공식 설치 스크립트)."
+  curl -fsSL https://releases.aside.com/install.sh | bash
+fi
+export PATH="$HOME/.local/bin:$PATH"
 
 say "2/6 파이썬 환경 만들기"
 python3 -m venv .venv
@@ -63,6 +71,13 @@ mkdir -p "$HOME/.claude/skills" "$HOME/.claude/youtube"
 for s in .claude/skills/*; do ln -sfn "$ROOT/$s" "$HOME/.claude/skills/$(basename "$s")"; done
 [ -f "$HOME/.claude/youtube/voice.template.md" ] || cp .claude/youtube/voice.template.md "$HOME/.claude/youtube/"
 echo "스킬: $(ls .claude/skills | tr '\n' ' ')"
+
+say "Aside 연결 확인"
+if aside repl "console.log('@@ASIDE_OK@@')" 2>/dev/null | grep -q "@@ASIDE_OK@@"; then
+  echo "Aside 연결 확인됨."
+else
+  echo "※ Aside 에 연결하지 못했습니다. Aside 앱을 켜고 로그인한 뒤 터미널에서 'aside login' 을 한 번 실행해 주세요."
+fi
 
 say "설치 끝"
 cat <<EOF

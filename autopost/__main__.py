@@ -4,6 +4,7 @@ python -m autopost login      # (browser 방식일 때만) 크롬에서 채널 �
 python -m autopost tick       # 새 영상 편집 + 시간이 된 영상 업로드 (스케줄러가 30분마다 실행)
 python -m autopost edit FILE  # 한 파일만 편집해서 결과 확인 (업로드 안 함)
 python -m autopost status     # 대기열 보기
+python -m autopost jobs       # 천안·아산 강사 모집 공고 지금 확인 (tick 이 하루 한 번 자동 실행)
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import traceback
 from pathlib import Path
 
 from . import config as C
-from . import edit, meta, queue
+from . import edit, jobs, meta, queue
 
 VIDEO_EXT = {".mp4", ".mov", ".m4v", ".avi", ".mkv"}
 LOG = Path.home() / ".linssam-autopost" / "log.txt"
@@ -81,7 +82,7 @@ def stable(p: Path, wait: float = 3.0) -> bool:
 def process_new(cfg: dict) -> None:
     f = C.folders(cfg)
     f.ensure()
-    for kind, inbox in (("shorts", f.shorts), ("long", f.long)):
+    for kind, inbox in (("shorts", f.shorts), ("long", f.long), ("class", f.classes)):
         for src in sorted(inbox.iterdir()):
             if src.suffix.lower() not in VIDEO_EXT or src.name.startswith("."):
                 continue
@@ -96,9 +97,17 @@ def process_new(cfg: dict) -> None:
             log(f"편집 시작: {src.name}")
             stem = f"{src.stem}_{dt.datetime.now():%Y%m%d%H%M%S}"
             try:
-                m = meta.shorts_meta(src, cfg) if kind == "shorts" else meta.long_meta(src, cfg)
-                res = edit.render(src, f.work, kind=kind, title=m["band"], class_line=cfg.get("class_line", ""),
-                                  opts=cfg.get("edit", {}), out_stem=stem)
+                m = {"shorts": meta.shorts_meta, "long": meta.long_meta, "class": meta.class_meta}[kind](src, cfg)
+                render_kind, opts = kind, dict(cfg.get("edit", {}))
+                if kind == "class":
+                    # class footage keeps its own orientation; no beat counts, no tracking needed
+                    pr = edit.probe(src)
+                    render_kind = "shorts" if pr.height > pr.width else "long"
+                    opts["count_captions"] = False
+                    opts["max_shorts_sec"] = 10 ** 6
+                res = edit.render(src, f.work, kind=render_kind, title=m["band"],
+                                  class_line=cfg.get("booking_end_line", "") if kind == "class" else cfg.get("class_line", ""),
+                                  opts=opts, out_stem=stem)
             except Exception as e:  # noqa: BLE001
                 log(f"편집 실패: {src.name} — {e}")
                 moved = move(src, f.review)
@@ -112,7 +121,7 @@ def process_new(cfg: dict) -> None:
                 continue
             if res.warnings:
                 log(f"참고: {src.name} — {' / '.join(res.warnings)}")
-            entry = queue.add({"key": key, "kind": kind, "channel": cfg.get("channel_name", ""), "source": src.name, "video": str(res.video),
+            entry = queue.add({"key": key, "kind": kind, "channel": cfg.get("channel_name", ""), "band": m["band"], "source": src.name, "video": str(res.video),
                                "thumbnail": str(res.thumbnail), "title": m["title"], "description": m["description"]}, cfg)
             move(src, f.done)
             log(f"대기열 추가: {m['title']} → {entry['slot']}")
@@ -145,6 +154,13 @@ def upload_due(cfg: dict) -> None:
                                         Path(item["thumbnail"]) if item["kind"] == "long" else None)
             queue.update(item["key"], status="uploaded", url=url, uploaded_at=dt.datetime.now().isoformat())
             log(f"업로드 완료: {item['title']} {url}")
+            try:
+                f = C.folders(cfg)
+                text = meta.promo_text({"title": item["title"], "band": item.get("band", "")}, item["kind"], cfg, url)
+                name = f"{dt.date.today():%m%d} {Path(item['source']).stem} 당근·블로그용.txt"
+                unique_dest(f.promo, name).write_text(text, encoding="utf-8")
+            except Exception as e:  # noqa: BLE001
+                log(f"홍보문구 저장 실패: {e}")
         except Exception as e:  # noqa: BLE001
             safe = getattr(e, "retry_safe", False)  # unknown errors: a person checks before retrying
             queue.update(item["key"], status="failed" if safe else "check", error=str(e),
@@ -186,11 +202,23 @@ def main(argv: list[str]) -> int:
             except Exception:  # noqa: BLE001
                 log("업로드 단계 오류:\n" + traceback.format_exc())
                 code = 1
+            try:
+                if cfg.get("job_alerts", True) and jobs.due():
+                    new = jobs.run(C.folders(cfg).base / "강사모집공고.md")
+                    hot = [n for n in new if n["hot"]]
+                    log(f"강사 모집 공고 확인: 새 공고 {len(new)}건 (관련 {len(hot)}건)")
+                    if hot:
+                        notify("강사 모집 공고", " / ".join(n["title"][:30] for n in hot[:3]))
+            except Exception:  # noqa: BLE001
+                log("공고 확인 오류:\n" + traceback.format_exc())
             return code
     elif cmd == "edit":
         src = Path(argv[1])
-        kind = argv[2] if len(argv) > 2 else ("long" if C.INBOX_LONG in str(src) else "shorts")
-        m = meta.shorts_meta(src, cfg) if kind == "shorts" else meta.long_meta(src, cfg)
+        kind = argv[2] if len(argv) > 2 else ("long" if C.INBOX_LONG in str(src) else "class" if C.INBOX_CLASS in str(src) else "shorts")
+        m = {"shorts": meta.shorts_meta, "long": meta.long_meta, "class": meta.class_meta}[kind](src, cfg)
+        if kind == "class":
+            pr = edit.probe(src)
+            kind = "shorts" if pr.height > pr.width else "long"
         res = edit.render(src, src.parent / "편집결과", kind=kind, title=m["band"],
                           class_line=cfg.get("class_line", ""), opts=cfg.get("edit", {}),
                           out_stem=f"{src.stem}_{dt.datetime.now():%Y%m%d%H%M%S}")
@@ -200,6 +228,12 @@ def main(argv: list[str]) -> int:
         print("설명:\n" + m["description"])
         print("멈출 문제:", " / ".join(res.problems) or "없음")
         print("참고:", " / ".join(res.warnings) or "없음")
+    elif cmd == "jobs":
+        out = C.folders(cfg).base / "강사모집공고.md"
+        new = jobs.run(out)
+        print(f"새 공고 {len(new)}건 → {out}")
+        for n in new:
+            print(("⭐ " if n["hot"] else "   ") + n["title"])
     elif cmd == "status":
         for i in queue.items():
             print(f"{i['status']:9} {i['slot'][:16]}  {i['title']}  {i.get('url', '')}{i.get('error', '')}")

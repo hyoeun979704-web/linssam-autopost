@@ -12,6 +12,8 @@ FONT = ROOT / "assets" / "fonts" / "DoHyeon-Regular.ttf"
 
 INBOX_SHORTS = "쇼츠_입문"
 INBOX_LONG = "롱폼_라인댄스"
+INBOX_CLASS = "수업영상"
+PROMO = "홍보문구"
 DONE = "완료"
 REVIEW = "확인필요"
 WORK = ".작업중"
@@ -30,6 +32,14 @@ class Folders:
         return self.base / INBOX_LONG
 
     @property
+    def classes(self) -> Path:
+        return self.base / INBOX_CLASS
+
+    @property
+    def promo(self) -> Path:
+        return self.base / PROMO
+
+    @property
     def done(self) -> Path:
         return self.base / DONE
 
@@ -42,7 +52,7 @@ class Folders:
         return self.base / WORK
 
     def ensure(self) -> None:
-        for p in (self.shorts, self.long, self.done, self.review, self.work):
+        for p in (self.shorts, self.long, self.classes, self.promo, self.done, self.review, self.work):
             p.mkdir(parents=True, exist_ok=True)
 
 
