@@ -89,6 +89,15 @@ powershell -ExecutionPolicy Bypass -File scripts\install_windows.ps1
 
 기록: `~/.linssam-autopost/log.txt`
 
+## 강사 소개서 (PDF)
+
+센터 지원서에 붙이는 한 장짜리 강사 소개서. `profile/린쌤_강사소개.pdf`
+
+1. `profile/profile.yaml` 을 고친다 (소속·자격, 출강 이력, 가능한 수업, 대표 영상).
+2. `.venv/bin/python scripts/make_profile.py` 를 실행하면 PDF 가 다시 만들어진다.
+
+`[현장 확인]` 이 붙은 줄은 PDF 에 노란 표시로 나온다. 모두 확인해서 지운 뒤에 센터에 보낸다.
+
 ## Claude 스킬
 
 `.claude/skills/` 에 들어 있고 설치 스크립트가 `~/.claude/skills/` 에 연결한다.
