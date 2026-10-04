@@ -69,14 +69,20 @@ def scan() -> tuple[list[dict], list[str]]:
 
 
 def _load() -> dict:
-    if STATE.exists():
-        return json.loads(STATE.read_text(encoding="utf-8"))
+    try:
+        if STATE.exists():
+            return json.loads(STATE.read_text(encoding="utf-8"))
+    except ValueError:
+        pass  # a broken state file starts over instead of stopping the alerts
     return {"seen": {}, "last_run": ""}
 
 
 def _save(st: dict) -> None:
+    import os
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    STATE.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp = STATE.with_suffix(f".{os.getpid()}.tmp")
+    tmp.write_text(json.dumps(st, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(STATE)
 
 
 def due(hours: float = 20) -> bool:
@@ -96,9 +102,6 @@ def run(out_file: Path) -> list[dict]:
         if f["url"] not in st["seen"]:
             st["seen"][f["url"]] = {**f, "first_seen": today}
             new.append(f)
-    st["last_run"] = dt.datetime.now().isoformat()
-    _save(st)
-
     items = sorted(st["seen"].values(), key=lambda x: (x["first_seen"], x["hot"]), reverse=True)[:60]
     lines = ["# 강사 모집 공고 (천안·아산)", "",
              f"마지막 확인: {dt.datetime.now():%Y-%m-%d %H:%M} · 매일 한 번 자동으로 갱신됩니다.",
@@ -111,4 +114,6 @@ def run(out_file: Path) -> list[dict]:
         lines += ["", "읽지 못한 게시판: " + " / ".join(errors)]
     out_file.parent.mkdir(parents=True, exist_ok=True)
     out_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    st["last_run"] = dt.datetime.now().isoformat()  # only after the Drive file is written
+    _save(st)
     return new

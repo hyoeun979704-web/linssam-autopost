@@ -79,6 +79,18 @@ def stable(p: Path, wait: float = 3.0) -> bool:
     return a > 0 and a == p.stat().st_size
 
 
+def plan(kind: str, src: Path, cfg: dict) -> tuple[dict, str, dict, str]:
+    """(meta, render kind, edit options, end-card line) — shared by `tick` and `edit`."""
+    m = {"shorts": meta.shorts_meta, "long": meta.long_meta, "class": meta.class_meta}[kind](src, cfg)
+    opts = dict(cfg.get("edit", {}))
+    if kind != "class":
+        return m, kind, opts, cfg.get("class_line", "")
+    pr = edit.probe(src)
+    # class footage keeps its whole frame: no beat counts, no cropping, any length
+    opts.update(count_captions=False, max_shorts_sec=10 ** 6, no_crop=True)
+    return m, ("shorts" if pr.height > pr.width else "long"), opts, cfg.get("booking_end_line", "")
+
+
 def process_new(cfg: dict) -> None:
     f = C.folders(cfg)
     f.ensure()
@@ -97,16 +109,8 @@ def process_new(cfg: dict) -> None:
             log(f"편집 시작: {src.name}")
             stem = f"{src.stem}_{dt.datetime.now():%Y%m%d%H%M%S}"
             try:
-                m = {"shorts": meta.shorts_meta, "long": meta.long_meta, "class": meta.class_meta}[kind](src, cfg)
-                render_kind, opts = kind, dict(cfg.get("edit", {}))
-                if kind == "class":
-                    # class footage keeps its own orientation; no beat counts, no tracking needed
-                    pr = edit.probe(src)
-                    render_kind = "shorts" if pr.height > pr.width else "long"
-                    opts["count_captions"] = False
-                    opts["max_shorts_sec"] = 10 ** 6
-                res = edit.render(src, f.work, kind=render_kind, title=m["band"],
-                                  class_line=cfg.get("booking_end_line", "") if kind == "class" else cfg.get("class_line", ""),
+                m, render_kind, opts, end_line = plan(kind, src, cfg)
+                res = edit.render(src, f.work, kind=render_kind, title=m["band"], class_line=end_line,
                                   opts=opts, out_stem=stem)
             except Exception as e:  # noqa: BLE001
                 log(f"편집 실패: {src.name} — {e}")
@@ -215,13 +219,9 @@ def main(argv: list[str]) -> int:
     elif cmd == "edit":
         src = Path(argv[1])
         kind = argv[2] if len(argv) > 2 else ("long" if C.INBOX_LONG in str(src) else "class" if C.INBOX_CLASS in str(src) else "shorts")
-        m = {"shorts": meta.shorts_meta, "long": meta.long_meta, "class": meta.class_meta}[kind](src, cfg)
-        if kind == "class":
-            pr = edit.probe(src)
-            kind = "shorts" if pr.height > pr.width else "long"
-        res = edit.render(src, src.parent / "편집결과", kind=kind, title=m["band"],
-                          class_line=cfg.get("class_line", ""), opts=cfg.get("edit", {}),
-                          out_stem=f"{src.stem}_{dt.datetime.now():%Y%m%d%H%M%S}")
+        m, render_kind, opts, end_line = plan(kind, src, cfg)
+        res = edit.render(src, src.parent / "편집결과", kind=render_kind, title=m["band"], class_line=end_line,
+                          opts=opts, out_stem=f"{src.stem}_{dt.datetime.now():%Y%m%d%H%M%S}")
         print("영상:", res.video, f"({res.duration:.1f}초)")
         print("썸네일:", res.thumbnail)
         print("제목:", m["title"])

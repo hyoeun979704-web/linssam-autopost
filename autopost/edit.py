@@ -250,8 +250,8 @@ def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, 
         x_first = lines[0].split()[-1].rstrip(";") if lines else 0
         crop = f"crop={cw}:{pr.height}:{x_first}:0"
         sendcmd = "\n".join(lines)
-    elif kind == "long" and src_ratio < 1.0:  # portrait clip into a 16:9 video: blurred sides, nothing cut
-        crop = "PAD"
+    elif (kind == "long" and src_ratio < 1.0) or (opts.get("no_crop") and abs(src_ratio - target_ratio) > 0.01):
+        crop = "PAD"  # nothing is cut: fit the whole frame, blurred copy behind it
     elif src_ratio < target_ratio - 0.01:  # slightly taller source: crop from the top so the feet stay in
         ch = int(pr.width / target_ratio) // 2 * 2
         cy0 = max(pr.height - ch, 0)
@@ -271,8 +271,8 @@ def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, 
             pre = "sendcmd=f=crop.cmd,"  # relative path: ffmpeg runs inside td (Windows drive colons break filters)
         if crop == "PAD":
             filters = [f"[0:v]setpts=PTS-STARTPTS,fps=30,split[a][b];[a]scale={W}:{H}:force_original_aspect_ratio=increase,"
-                       f"crop={W}:{H},boxblur=30:5[bg];[b]scale=-2:{H}:flags=lanczos[fg];"
-                       f"[bg][fg]overlay=(W-w)/2:0,setsar=1[base]"]
+                       f"crop={W}:{H},boxblur=30:5[bg];[b]scale={W}:{H}:force_original_aspect_ratio=decrease:flags=lanczos[fg];"
+                       f"[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[base]"]
         else:
             filters = [f"[0:v]setpts=PTS-STARTPTS,{pre}{crop},scale={W}:{H}:flags=lanczos,setsar=1,fps=30[base]"]
         last = "base"
