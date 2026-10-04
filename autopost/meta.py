@@ -44,12 +44,13 @@ def shorts_meta(video: Path, cfg: dict) -> dict:
     series, total = cfg.get("shorts_series", "셔플 입문"), cfg.get("shorts_total", 12)
     band = f"{series} {num}/{total} · {move}" if num else f"{series} · {move}"
     title = info.get("title") or f"{band} · {cfg.get('shorts_level', '완전초보 따라하기')} | {cfg.get('region_tag', '')}".rstrip(" |")
-    lines = [f"☘️ {series} {total}스텝 - {num}번 {move}" if num else f"☘️ {move}",
-             "처음이셔도 천천히 따라오시면 돼요~", ""]
-    if cfg.get("class_line"):
-        lines.append(f"🩵 {cfg['class_line']}")
+    # The first two lines show above "더보기": what this is + how to sign up.
+    lines = [f"☘️ {series} {total}스텝 {num}번 {move} · 처음이셔도 천천히 따라오시면 돼요~" if num
+             else f"☘️ {move} · 처음이셔도 천천히 따라오시면 돼요~"]
     if cfg.get("contact_line"):
         lines.append(cfg["contact_line"])
+    lines.append("")
+    lines += cfg.get("info_lines", [])
     lines += extra
     lines += ["", cfg.get("hashtags", "")]
     return {"title": title[:100], "description": "\n".join(lines).strip(), "band": band}
@@ -61,8 +62,13 @@ def long_meta(video: Path, cfg: dict) -> dict:
     level = info.get("level", "")
     korean = info.get("korean", "")
     name = f"{song} {korean}".strip() if korean else song
-    title = info.get("title") or " · ".join(x for x in [name, f"{level} 라인댄스" if level else "라인댄스"] if x) + " | 천안"
-    lines = [f"☘️ {song}"]
+    title = info.get("title") or " · ".join(x for x in [name, f"{level} 라인댄스" if level else "라인댄스"] if x) + " | 천안·아산"
+    lines = [f"☘️ {song}" + (f" · {level}" if level else "")]
+    if cfg.get("contact_line"):
+        lines.append(cfg["contact_line"])
+    lines.append("")
+    lines += cfg.get("info_lines_long", [])
+    lines.append("")
     for label, key in [("Count", "count"), ("Wall", "wall"), ("Level", "level"), ("Choreo", "choreo")]:
         if info.get(key):
             lines.append(f"{label}: {info[key]}")
@@ -72,12 +78,8 @@ def long_meta(video: Path, cfg: dict) -> dict:
     else:
         q = song.replace(" ", "+")
         lines.append(f"☘️ 스텝시트 찾기: https://www.copperknob.co.uk/search?q={q}")
-    lines.append("")
-    if cfg.get("class_line"):
-        lines.append(f"🩵 {cfg['class_line']}")
-    if cfg.get("contact_line"):
-        lines.append(cfg["contact_line"])
     lines += extra
     lines += ["", cfg.get("hashtags_line", "")]
     thumb_text = f"{song}" + (f" · {level}" if level else "")
-    return {"title": title[:100], "description": "\n".join(lines).strip(), "band": thumb_text}
+    desc = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+    return {"title": title[:100], "description": desc, "band": thumb_text}
