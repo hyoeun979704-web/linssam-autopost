@@ -53,13 +53,16 @@ def _taken(q: list[dict], kind: str, channel: str) -> set[str]:
             and i["kind"] == kind and i.get("channel", "") == channel}
 
 
-def reslot_overdue(cfg: dict, grace_hours: float = 6, now: dt.datetime | None = None) -> list[dict]:
+def reslot_overdue(cfg: dict, grace_hours: float = 6, now: dt.datetime | None = None,
+                   channel: str | None = None) -> list[dict]:
     """The computer was off: move long-overdue waiting items to the next free slots instead of
     publishing them all at once."""
     now = now or dt.datetime.now()
     q = _load()
     moved = []
     for i in sorted(q, key=lambda x: x["slot"]):
+        if channel is not None and i.get("channel", "") != channel:
+            continue
         if i["status"] == "waiting" and dt.datetime.fromisoformat(i["slot"]) < now - dt.timedelta(hours=grace_hours):
             i["slot"] = next_slot(i["kind"], cfg, _taken(q, i["kind"], i.get("channel", "")), now).isoformat()
             moved.append(i)

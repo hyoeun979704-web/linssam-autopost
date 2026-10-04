@@ -98,11 +98,13 @@ try {
         for (let i = 0; i < 15; i++) {
           await sleep(2000);
           const dlg = await pg.locator('ytcp-uploads-dialog #done-button').count();
-          const share = await pg.locator('ytcp-video-share-dialog, ytcp-prechecks-warning-dialog').count();
+          const share = await pg.locator('ytcp-video-share-dialog').count();
+          const warn = await pg.locator('ytcp-prechecks-warning-dialog').count();
+          if (warn) break;
           if (share || !dlg) { published = true; break; }
         }
         if (published) { say({ok:true, phase:2, waiting:false}); try { await closeTab(pg); } catch (e) {} }
-        else { say({ok:false, error:'완료 버튼을 눌렀지만 게시 확인 창이 뜨지 않았습니다.'}); }
+        else { say({ok:false, error:'완료 버튼을 눌렀지만 게시 확인 창이 뜨지 않았습니다(저작권 검사 경고 등). 스튜디오에서 확인해 주세요.'}); }
       }
     }
   }
@@ -131,7 +133,10 @@ def _call(cfg: dict, js: str, args: dict) -> dict:
     out = (p.stdout or "") + (p.stderr or "")
     for line in out.splitlines():
         if "@@RESULT@@" in line:
-            return json.loads(line.split("@@RESULT@@", 1)[1])
+            try:
+                return json.loads(line.split("@@RESULT@@", 1)[1])
+            except ValueError:
+                break
     return {"ok": False, "sent": True, "error": "Aside 응답이 끊겼습니다(스튜디오 확인 필요): " + out[-200:]}
 
 

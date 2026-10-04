@@ -126,7 +126,7 @@ def upload_due(cfg: dict) -> None:
             if dt.datetime.now() - started > dt.timedelta(hours=2):
                 queue.update(item["key"], status="check", error="업로드 도중 멈췄습니다. 스튜디오에서 올라갔는지 확인해 주세요.")
                 log(f"확인필요(업로드 중단): {item['title']}")
-    for i in queue.reslot_overdue(cfg):
+    for i in queue.reslot_overdue(cfg, channel=cfg.get("channel_name", "")):
         log(f"밀린 영상 시간 다시 잡음: {i['title']} → {i['slot']}")
     # at most one upload per kind per run, so a backlog never floods the channel
     seen_kinds = set()

@@ -100,10 +100,11 @@ def upload(cfg: dict, video: Path, title: str, description: str, thumbnail: Path
 
             # Account check: the channel name shown in Studio must match the config.
             want = cfg.get("channel_name", "").strip()
-            if want:
-                names = [t.strip() for t in page.locator("#entity-name, .entity-name, #channel-title").all_inner_texts() if t.strip()]
-                if want not in names:
-                    raise RuntimeError(f"스튜디오 채널명이 '{want}' 와 다릅니다(보이는 이름: {', '.join(names) or '찾지 못함'}). 업로드를 멈췄습니다.")
+            if not want:
+                raise UploadError("config.yaml 에 channel_name 이 비어 있습니다. 채널명을 적어야 올릴 수 있습니다.", retry_safe=True)
+            names = [t.strip() for t in page.locator("#entity-name, .entity-name, #channel-title").all_inner_texts() if t.strip()]
+            if want not in names:
+                raise UploadError(f"스튜디오 채널명이 '{want}' 와 다릅니다(보이는 이름: {', '.join(names) or '찾지 못함'}). 업로드를 멈췄습니다.", retry_safe=True)
 
             page.goto("https://www.youtube.com/upload", wait_until="domcontentloaded")
             page.locator("input[type=file]").first.set_input_files(str(video))
@@ -136,7 +137,16 @@ def upload(cfg: dict, video: Path, title: str, description: str, thumbnail: Path
                     break
                 page.wait_for_timeout(3000)
             page.locator("#done-button").click()
-            page.wait_for_timeout(5000)
+            published = False
+            for _ in range(15):
+                page.wait_for_timeout(2000)
+                if page.locator("ytcp-prechecks-warning-dialog").count():
+                    break
+                if page.locator("ytcp-video-share-dialog").count() or not page.locator("ytcp-uploads-dialog #done-button").count():
+                    published = True
+                    break
+            if not published:
+                raise UploadError("완료 버튼을 눌렀지만 게시 확인 창이 뜨지 않았습니다. 스튜디오에서 확인해 주세요.", retry_safe=False)
             page.close()
             return url
     except UploadError:
