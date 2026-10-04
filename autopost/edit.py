@@ -40,8 +40,8 @@ class EditResult:
     warnings: list[str] = field(default_factory=list)   # note in the log, still uploads
 
 
-def run(cmd: list[str]) -> str:
-    p = subprocess.run(cmd, capture_output=True, text=True)
+def run(cmd: list[str], cwd: str | Path | None = None) -> str:
+    p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(cwd) if cwd else None)
     if p.returncode != 0:
         raise RuntimeError(f"{cmd[0]} 실패: {p.stderr[-800:]}")
     return p.stdout
@@ -215,7 +215,8 @@ def _between(times: list[tuple[float, float]]) -> str:
     return "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in times) or "0"
 
 
-def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, opts: dict) -> EditResult:
+def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, opts: dict,
+           out_stem: str | None = None) -> EditResult:
     """kind: 'shorts' or 'long'."""
     out_dir.mkdir(parents=True, exist_ok=True)
     pr = probe(src)
@@ -258,12 +259,12 @@ def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, 
 
     with tempfile.TemporaryDirectory() as td:
         td = Path(td)
-        inputs = ["-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", str(src)]
+        inputs = ["-ss", f"{start:.3f}", "-to", f"{end:.3f}", "-i", str(src.resolve())]
         pre = ""
         if sendcmd:
             cmdfile = td / "crop.cmd"
             cmdfile.write_text(sendcmd.replace("\\n", "\n"), encoding="utf-8")
-            pre = f"sendcmd=f='{cmdfile}',"
+            pre = "sendcmd=f=crop.cmd,"  # relative path: ffmpeg runs inside td (Windows drive colons break filters)
         filters = [f"[0:v]setpts=PTS-STARTPTS,{pre}{crop},scale={W}:{H}:flags=lanczos,setsar=1,fps=30[base]"]
         last = "base"
         idx = 1
@@ -303,15 +304,15 @@ def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, 
             filters.append(f"[{last}][{idx}:v]overlay=0:0:shortest=1:enable='gte(t,{dur - ec_sec:.3f})'[v{idx}]")
             last, idx = f"v{idx}", idx + 1
 
-        out = out_dir / f"{src.stem}_{kind}.mp4"
+        out = (out_dir / f"{out_stem or src.stem}_{kind}.mp4").resolve()
         cmd = ["ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex", ";".join(filters), "-map", f"[{last}]"]
         if pr.has_audio:
             cmd += ["-map", "0:a:0", "-c:a", "aac", "-b:a", "192k"]
         cmd += ["-t", f"{dur:.3f}", "-c:v", "libx264", "-preset", "medium", "-crf", "19", "-pix_fmt", "yuv420p",
                 "-movflags", "+faststart", str(out)]
-        run(cmd)
+        run(cmd, cwd=td)
 
-    thumb = out_dir / f"{src.stem}_{kind}_thumb.jpg"
+    thumb = out_dir / f"{out_stem or src.stem}_{kind}_thumb.jpg"
     make_thumbnail(src, best_front_frame(src, start, end), thumb, title, kind, crop if kind == "shorts" else None)
     final = probe(out)
     if kind == "shorts" and final.duration > opts.get("max_shorts_sec", 60):

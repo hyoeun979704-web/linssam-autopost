@@ -14,7 +14,7 @@ Write-Host "ffmpeg 이나 python 을 방금 설치했다면 PowerShell 을 닫�
 Say "2/6 파이썬 환경 만들기"
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -q --upgrade pip
-.\.venv\Scripts\python -m pip install -q -r requirements.txt
+.\.venv\Scripts\python -m pip install -q -r requirements.txt -r requirements-browser.txt
 
 Say "3/6 설정 파일"
 if (-not (Test-Path config.yaml)) { Copy-Item config.example.yaml config.yaml; Write-Host "config.yaml 을 만들었습니다. 채널명·폴더·수업 안내·연락처를 채워 주세요." }

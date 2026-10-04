@@ -19,7 +19,7 @@ command -v aside >/dev/null || [ -x "$HOME/.local/bin/aside" ] || echo "※ Asid
 say "2/6 파이썬 환경 만들기"
 python3 -m venv .venv
 .venv/bin/pip install -q --upgrade pip
-.venv/bin/pip install -q -r requirements.txt
+.venv/bin/pip install -q -r requirements.txt -r requirements-browser.txt
 
 say "3/6 설정 파일"
 if [ ! -f config.yaml ]; then

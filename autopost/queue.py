@@ -16,7 +16,8 @@ def _load() -> list[dict]:
 
 def _save(items: list[dict]) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
-    tmp = STATE.with_suffix(".tmp")
+    import os
+    tmp = STATE.with_suffix(f".{os.getpid()}.tmp")
     tmp.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(STATE)
 
@@ -49,7 +50,7 @@ def next_slot(kind: str, cfg: dict, taken: set[str], now: dt.datetime | None = N
 
 def add(entry: dict, cfg: dict) -> dict:
     q = _load()
-    taken = {i["slot"] for i in q if i["status"] in ("waiting", "uploaded") and i["kind"] == entry["kind"]}
+    taken = {i["slot"] for i in q if i["status"] in ("waiting", "uploading", "uploaded", "failed") and i["kind"] == entry["kind"]}
     entry["slot"] = next_slot(entry["kind"], cfg, taken).isoformat()
     entry["status"] = "waiting"
     q.append(entry)
@@ -57,9 +58,24 @@ def add(entry: dict, cfg: dict) -> dict:
     return entry
 
 
+MAX_ATTEMPTS = 3
+RETRY_AFTER = dt.timedelta(minutes=30)
+
+
 def due(now: dt.datetime | None = None) -> list[dict]:
+    """Waiting items whose slot has come, plus failed ones that may be retried."""
     now = now or dt.datetime.now()
-    return [i for i in _load() if i["status"] == "waiting" and dt.datetime.fromisoformat(i["slot"]) <= now]
+    out = []
+    for i in _load():
+        if dt.datetime.fromisoformat(i["slot"]) > now:
+            continue
+        if i["status"] == "waiting":
+            out.append(i)
+        elif i["status"] == "failed" and i.get("attempts", 0) < MAX_ATTEMPTS:
+            last = dt.datetime.fromisoformat(i.get("failed_at", i["slot"]))
+            if now - last >= RETRY_AFTER:
+                out.append(i)
+    return out
 
 
 def update(key: str, **fields) -> None:

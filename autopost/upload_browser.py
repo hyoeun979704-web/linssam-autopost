@@ -94,10 +94,9 @@ def upload(cfg: dict, video: Path, title: str, description: str, thumbnail: Path
             # Account check: the channel name shown in Studio must match the config.
             want = cfg.get("channel_name", "").strip()
             if want:
-                page.locator("#avatar-btn, ytcp-home-button, #entity-name").first.wait_for(timeout=30000)
-                body = page.locator("body").inner_text()
-                if want not in body:
-                    raise RuntimeError(f"스튜디오에 보이는 채널이 '{want}' 가 아닙니다. 업로드를 멈췄습니다.")
+                names = [t.strip() for t in page.locator("#entity-name, .entity-name, #channel-title").all_inner_texts() if t.strip()]
+                if want not in names:
+                    raise RuntimeError(f"스튜디오 채널명이 '{want}' 와 다릅니다(보이는 이름: {', '.join(names) or '찾지 못함'}). 업로드를 멈췄습니다.")
 
             page.goto("https://www.youtube.com/upload", wait_until="domcontentloaded")
             page.locator("input[type=file]").first.set_input_files(str(video))
