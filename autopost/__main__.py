@@ -85,8 +85,11 @@ def process_new(cfg: dict) -> None:
         for src in sorted(inbox.iterdir()):
             if src.suffix.lower() not in VIDEO_EXT or src.name.startswith("."):
                 continue
-            if not stable(src):
-                continue
+            try:
+                if not stable(src):
+                    continue
+            except OSError:
+                continue  # Drive moved or deleted it while we looked
             key = f"{cfg.get('channel_name', '')}:{kind}:{src.stem}:{src.stat().st_size}"
             if any(i["key"] == key for i in queue.items()):
                 continue
@@ -143,7 +146,7 @@ def upload_due(cfg: dict) -> None:
             queue.update(item["key"], status="uploaded", url=url, uploaded_at=dt.datetime.now().isoformat())
             log(f"업로드 완료: {item['title']} {url}")
         except Exception as e:  # noqa: BLE001
-            safe = getattr(e, "retry_safe", True)
+            safe = getattr(e, "retry_safe", False)  # unknown errors: a person checks before retrying
             queue.update(item["key"], status="failed" if safe else "check", error=str(e),
                          failed_at=dt.datetime.now().isoformat())
             log(f"업로드 실패: {item['title']} — {e}")
@@ -171,13 +174,19 @@ def main(argv: list[str]) -> int:
             if not got:
                 print("이미 실행 중입니다.")
                 return 0
+            code = 0
             try:
                 process_new(cfg)
+            except Exception:  # noqa: BLE001
+                log("편집 단계 오류:\n" + traceback.format_exc())
+                code = 1
+            try:
                 if cfg.get("upload_method", "aside") in ("aside", "browser"):
                     upload_due(cfg)
             except Exception:  # noqa: BLE001
-                log("오류:\n" + traceback.format_exc())
-                return 1
+                log("업로드 단계 오류:\n" + traceback.format_exc())
+                code = 1
+            return code
     elif cmd == "edit":
         src = Path(argv[1])
         kind = argv[2] if len(argv) > 2 else ("long" if C.INBOX_LONG in str(src) else "shorts")

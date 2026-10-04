@@ -228,9 +228,11 @@ def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, 
 
     W, H = (SHORT_W, SHORT_H) if kind == "shorts" else (LONG_W, LONG_H)
     target_ratio = W / H
-    track = dancer_track(src, start, end)
+    src_ratio_ = pr.width / pr.height
+    needs_track = src_ratio_ > target_ratio + 0.01
+    track = dancer_track(src, start, end, step=0.33 if needs_track else 1.0)
     found = [c for _, c, _ in track if c is not None]
-    if len(found) < max(3, len(track) * 0.3):
+    if needs_track and len(found) < max(3, len(track) * 0.3):
         problems.append("사람을 잘 찾지 못했습니다. 화면 가운데 기준으로 잘랐으니 결과를 확인해 주세요.")
     bottoms = [b for _, _, b in track if b is not None]
     if bottoms and np.median(bottoms) > pr.height * 0.985:
@@ -248,9 +250,11 @@ def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, 
         x_first = lines[0].split()[-1].rstrip(";") if lines else 0
         crop = f"crop={cw}:{pr.height}:{x_first}:0"
         sendcmd = "\n".join(lines)
-    elif src_ratio < target_ratio - 0.01:  # taller source: keep the bottom so the feet stay in
+    elif kind == "long" and src_ratio < 1.0:  # portrait clip into a 16:9 video: blurred sides, nothing cut
+        crop = "PAD"
+    elif src_ratio < target_ratio - 0.01:  # slightly taller source: crop from the top so the feet stay in
         ch = int(pr.width / target_ratio) // 2 * 2
-        cy0 = max(pr.height - ch, 0) // 2
+        cy0 = max(pr.height - ch, 0)
         crop = f"crop={pr.width}:{ch}:0:{cy0}"
     else:
         crop = "null"
@@ -265,7 +269,12 @@ def render(src: Path, out_dir: Path, *, kind: str, title: str, class_line: str, 
             cmdfile = td / "crop.cmd"
             cmdfile.write_text(sendcmd.replace("\\n", "\n"), encoding="utf-8")
             pre = "sendcmd=f=crop.cmd,"  # relative path: ffmpeg runs inside td (Windows drive colons break filters)
-        filters = [f"[0:v]setpts=PTS-STARTPTS,{pre}{crop},scale={W}:{H}:flags=lanczos,setsar=1,fps=30[base]"]
+        if crop == "PAD":
+            filters = [f"[0:v]setpts=PTS-STARTPTS,fps=30,split[a][b];[a]scale={W}:{H}:force_original_aspect_ratio=increase,"
+                       f"crop={W}:{H},boxblur=30:5[bg];[b]scale=-2:{H}:flags=lanczos[fg];"
+                       f"[bg][fg]overlay=(W-w)/2:0,setsar=1[base]"]
+        else:
+            filters = [f"[0:v]setpts=PTS-STARTPTS,{pre}{crop},scale={W}:{H}:flags=lanczos,setsar=1,fps=30[base]"]
         last = "base"
         idx = 1
         if kind == "shorts":
